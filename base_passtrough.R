@@ -13,6 +13,8 @@ val <- c(-2.14, -1.22, -0.96, -0.51, -0.10,  0.28,  0.51,  0.49,
          -1.25, -0.74, -0.33, -0.05,  0.06,  0.11,  0.11,  0.09,
          0.11,  0.15,  0.23,  0.46,  0.64,  0.74,  0.67)
 
+hiato <- ts(val, start = c(2003, 2), frequency = 4)
+
 # Plotando a série com linhas verticais ("h") e cor vermelha
 plot(hiato, type = "h", col = "red",
      main = "Hiato do Produto Brasil - Relatório Trimestral de Inflação (Dezembro)",
@@ -499,3 +501,122 @@ final_df <- df_diff
 
 
 
+# transform into quarterly data
+
+
+library(dplyr)
+library(zoo)
+
+# Convert monthly data to quarterly by grouping on as.yearqtr(date)
+final_df_quarterly <- final_df %>%
+  mutate(quarter = as.yearqtr(date)) %>%   # convert date to quarterly period
+  group_by(quarter) %>%
+  summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%  # aggregate (here using mean)
+  ungroup() %>%
+  # Convert the quarter back to a Date (using the first day of the quarter)
+  mutate(date = as.Date(quarter)) %>%
+  dplyr::select(-quarter) %>%
+  arrange(date)
+
+# Inspect the quarterly data:
+tail(final_df_quarterly)
+
+
+library(zoo)
+
+# 'hiato' is a quarterly ts object:
+hiato_df <- data.frame(
+  date = as.Date(as.yearqtr(time(hiato))),
+  hiato = as.numeric(hiato)
+)
+
+# Inspect the converted hiato data frame
+head(hiato_df)
+
+
+library(dplyr)
+library(purrr)
+library(zoo)
+
+# Convert hiato ts object to data frame
+hiato_df <- data.frame(
+  date = as.Date(as.yearqtr(time(hiato))),
+  hiato = as.numeric(hiato)
+)
+
+# Merge your final quarterly data with hiato_df
+merged_quarterly <- full_join(final_df_quarterly, hiato_df, by = "date") %>% 
+  arrange(date)
+
+# Reorder columns so that date is first, ipca_a12 is second, and hiato is last.
+merged_ordered <- merged_quarterly %>%
+  select(date, ipca_a12, selic, cambio_real, cambio_realp, wti, brent, imp, prod_prices, hiato)
+
+# Inspect the final ordered merged data frame:
+print(head(merged_ordered))
+
+final_base <- merged_ordered[4:nrow(merged_ordered),]
+
+
+# balancear
+balanced.NN <- function(df) {
+  library(tsfgrnn)
+  library(zoo)
+  library(dplyr)
+  
+  # Ensure the 'date' column is in Date format
+  df$date <- as.Date(df$date)
+  
+  # Function to process each column
+  process_column <- function(col, col_name) {
+    if (all(is.na(col))) {
+      message("Column '", col_name, "' has all NA values.")
+      return(col)
+    } else if (any(is.na(col))) {
+      # Ensure the column is a time series object
+      if (!is.ts(col)) {
+        # Try to infer start and frequency if not already a ts object
+        start_date <- as.Date(df$date[!is.na(df$date)][1])
+        start_year <- as.numeric(format(start_date, "%Y"))
+        start_month <- as.numeric(format(start_date, "%m"))
+        col <- ts(col, start = c(start_year, start_month), frequency = 12)
+      }
+      col <- na.approx(col, na.rm = FALSE) # Interpolate missing values
+      
+      # Check if there is enough data for forecasting
+      if (length(na.omit(col)) < 2) {
+        message("Not enough data to forecast for column: ", col_name)
+        return(col) # Not enough data to forecast
+      }
+      
+      fit <- tryCatch({
+        tsfgrnn::grnn_forecasting(na.omit(col), h = sum(is.na(col)))
+      }, error = function(e) {
+        message("Forecasting failed for column: ", col_name, " with error: ", e$message)
+        return(NA) # Return NA if forecasting fails
+      })
+      
+      if (length(fit$prediction) == sum(is.na(col))) {
+        col[is.na(col)] <- fit$prediction
+      } else {
+        # Fallback to linear interpolation if forecasting fails
+        col <- na.approx(col, na.rm = FALSE)
+      }
+    }
+    return(col)
+  }
+  
+  # Apply the process_column function to each column
+  df_result <- df %>%
+    mutate(across(-date, ~process_column(., cur_column())))
+  
+  return(df_result)
+}
+balanced_NN <- as_tibble(balanced.NN(final_base))
+tail(balanced_NN)
+
+
+
+# base final para var
+
+df.VAR <- balanced_NN 
