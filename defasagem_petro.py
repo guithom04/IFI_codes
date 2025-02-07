@@ -54,7 +54,6 @@ gasoline_df = pd.concat(gasoline_tables, ignore_index=True) if gasoline_tables e
 # Reformata os DataFrames
 diesel_df = pd.melt(diesel_df, id_vars=['LOCAL', 'MODALIDADE\nDE VENDA'], value_name='PRECO')
 diesel_df = diesel_df.rename(columns={'MODALIDADE\nDE VENDA': 'MODALIDADE DE VENDA', 'variable': 'DATA'})
-
 gasoline_df = pd.melt(gasoline_df, id_vars=['LOCAL', 'MODALIDADE\nDE VENDA'], value_name='PRECO')
 gasoline_df = gasoline_df.rename(columns={'MODALIDADE\nDE VENDA': 'MODALIDADE DE VENDA', 'variable': 'DATA'})
 
@@ -210,7 +209,6 @@ diesel_ppi.sort_values("start_date", inplace=True)
 # Convert the EXA series date column to datetime
 gasolina_exa = all_series["Gasolina_EXA"].copy()
 diesel_exa = all_series["Diesel_EXA"].copy()
-
 gasolina_exa["DATA"] = pd.to_datetime(gasolina_exa["DATA"])
 diesel_exa["DATA"] = pd.to_datetime(diesel_exa["DATA"])
 
@@ -314,5 +312,110 @@ plt.show()
 
 
 # CALCULAR E PLOTAR DEFASAGEM
+def plot_avg_defasagem_refineries(merged_df, fuel_type):
+    """
+    Calcula e plota a defasagem percentual média para cada refinaria.
+    
+    Parâmetros:
+      - merged_df: DataFrame com os dados mesclados que deve conter:
+          • Colunas com os nomes das refinarias (ex.: "Manaus", "Itaqui", etc.)
+          • A coluna "PRECO" (preço EXA)
+          • Outras colunas derivadas que serão ignoradas: "defasagem_pct", "ppi_media", "Geral"
+      - fuel_type: String indicando o tipo de combustível (ex.: "Diesel" ou "Gasolina")
+    """
+    # Definindo as colunas que NÃO representam refinarias
+    exclude_cols = ['PRECO', 'defasagem_pct', 'ppi_media', 'Geral']
+    # Seleciona as colunas que representam refinarias
+    refinery_cols = [col for col in merged_df.columns if col not in exclude_cols]
+    
+    # Dicionário para armazenar a defasagem média de cada refinaria
+    defasagem_dict = {}
+    
+    for ref in refinery_cols:
+        # Cálculo da defasagem para cada linha:
+        # (PRECO - valor da refinaria) / PRECO * 100
+        # Assim, se o valor da refinaria for maior que o PRECO, a defasagem será negativa.
+        df_temp = (merged_df['PRECO'] - merged_df[ref]) / merged_df['PRECO'] * 100
+        mean_defasagem = df_temp.mean()
+        # Remove espaços em branco no nome (se houver)
+        defasagem_dict[ref.strip()] = mean_defasagem
+    
+    # Ordena as refinarias (opcional)
+    refinarias = list(defasagem_dict.keys())
+    valores = list(defasagem_dict.values())
+    
+    # Cria o gráfico de barras
+    plt.figure(figsize=(12, 6))
+    plt.bar(refinarias, valores, color='skyblue')
+    plt.axhline(0, color='black', linestyle='--', linewidth=1)
+    plt.title(f"Defasagem Percentual Média por Refinaria ({fuel_type})")
+    plt.xlabel("Refinaria")
+    plt.ylabel("Defasagem Média (%)")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# Exemplo de chamada para Diesel e Gasolina:
+plot_avg_defasagem_refineries(merged_diesel, "Diesel")
+plot_avg_defasagem_refineries(merged_gasolina, "Gasolina")
+
+
+
+
+
+import matplotlib.pyplot as plt
+
+def plot_avg_defasagem_series(merged_df, fuel_type):
+    """
+    Calcula a defasagem percentual média (usando a média de todas as refinarias) e plota a série temporal.
+    
+    Parâmetros:
+      - merged_df: DataFrame que deve conter:
+          • Colunas com os nomes das refinarias (ex.: "Manaus", "Itaqui", "Suape", etc.)
+          • A coluna "PRECO" (preço EXA)
+          • Colunas derivadas (como 'defasagem_pct', 'ppi_media', 'Geral') serão ignoradas.
+      - fuel_type: String indicando o tipo de combustível (ex.: "Diesel" ou "Gasolina")
+    """
+    # Colunas que NÃO serão consideradas como refinarias
+    exclude_cols = ['PRECO', 'defasagem_pct', 'ppi_media', 'Geral']
+    # Seleciona as colunas que correspondem às refinarias
+    refinery_cols = [col for col in merged_df.columns if col not in exclude_cols]
+    
+    if not refinery_cols:
+        print("Nenhuma coluna de refinaria encontrada.")
+        return
+
+    # Calcula a média dos PPIs das refinarias para cada linha (data)
+    merged_df['ppi_refinery_mean'] = merged_df[refinery_cols].mean(axis=1)
+    
+    # Calcula a defasagem percentual média:
+    # Se o PPI médio estiver acima do PRECO, o resultado será negativo.
+    merged_df['defasagem_media'] = (merged_df['PRECO'] - merged_df['ppi_refinery_mean']) / merged_df['PRECO'] * 100
+    
+    # Cria o gráfico de série temporal
+    plt.figure(figsize=(14, 7))
+    plt.plot(merged_df.index, merged_df['defasagem_media'], label=f'Defasagem Média ({fuel_type})', color='blue')
+    plt.axhline(0, color='black', linestyle='--', linewidth=1)
+    
+    # Destaca o último ponto da série
+    last_date = merged_df.index[-1]
+    last_value = merged_df['defasagem_media'].iloc[-1]
+    plt.scatter(last_date, last_value, color='red', s=100, zorder=5, label='Último Dado')
+    plt.annotate(f'{last_value:.2f}%', (last_date, last_value),
+                 textcoords="offset points", xytext=(0,10), ha='center', color='red')
+    
+    plt.title(f"Defasagem Percentual Média (todas refinarias) - {fuel_type}")
+    plt.xlabel("Data")
+    plt.ylabel("Defasagem (%)")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# Exemplo de chamada para Diesel e Gasolina (assegurando que o índice do DataFrame seja datetime)
+plot_avg_defasagem_series(merged_diesel, "Diesel")
+plot_avg_defasagem_series(merged_gasolina, "Gasolina")
+
 
 
