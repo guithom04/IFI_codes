@@ -191,3 +191,11 @@ baixar_grupos <- function(grupo, diretorio = "U:/Macro/Projeções/dados R/BACEN
     message("All series downloaded successfully.")
   }
 }
+
+
+
+
+
+baixar_grupos("automotivo")
+
+
