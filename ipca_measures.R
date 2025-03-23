@@ -21,4 +21,5 @@ ipca.measures <- function(){
                              IPCA_Livres),
                         full_join, by = "data")
   colnames(merged_ipca) <- c("data","ipca","ipca_adm","ipca_livres")
+  return(merged_ipca)
 }
